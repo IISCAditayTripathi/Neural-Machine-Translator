@@ -2,6 +2,9 @@ import torch
 
 from torch.utils.data import Dataset
 from collections import defaultdict
+import os
+import unicodedata
+import re
 
 class language(object):
     """docstring for language"""
@@ -53,7 +56,7 @@ def read_lang_data(lang1, lang2, root='lang_data/wmt15-de-en/'):
 
     pairs = [[normalizeString(l1) ,normalizeString(l2)] for l1, l2 in zip(lang1_data, lang2_data)]
 
-    return language_1, language_2, pairs
+    return pairs
 
 def get_lang_dict(sentence_pairs):
 	word2index_lang1 = defaultdict(int)
@@ -99,22 +102,29 @@ def get_lang_dict(sentence_pairs):
 
 class TextLoader(Dataset):
 	"""docstring for TextLoader"""
-	def __init__(self, data_array, root_dir):
+	def __init__(self, sentence_pairs, word2index_dict, index2word_dict):
 		super(TextLoader, self).__init__()
-		self.data_array = data_array
-		self.root_dir = root_dir
-		self.sentence_pairs = read_lang_data(self.data_array[0], self.data_array[1], self.root_dir)
-		self.word2index_lang1, self.word2index_lang2, self.index2word_lang1, self.index2word_lang2 = get_dict(self.sentence_pairs)
+		self.sentence_pairs = sentence_pairs
+		self.word2index_dict = word2index_dict
+		self.index2word_dict = index2word_dict
+		# self.data_array = data_array
+		# self.root_dir = root_dir
+		# self.sentence_pairs = read_lang_data(self.data_array[0], self.data_array[1], self.root_dir)
+		# self.word2index_lang1, self.word2index_lang2, self.index2word_lang1, self.index2word_lang2 = get_dict(self.sentence_pairs)
 
 	def __len__(self):
 		return len(self.sentence_pairs)
 
 	def __getitem__(self, idx):
 		sentences = self.sentence_pairs[idx]
+		# print(sentences)
+		lang1_array = []
+		for word in sentences[0].split(' '):
+			lang1_array.append(self.word2index_dict['lang1'][word])
 
-		lang1_array = [self.word2index_lang1[word] for word in sentences[0]]
+		lang1_array = [self.word2index_dict['lang1'][word] for word in sentences[0].split(' ')]
 
-		lang2_array = [self.word2index_lang2[word] for word in sentences[1]]
+		lang2_array = [self.word2index_dict['lang2'][word] for word in sentences[1].split(' ')]
 
 		lang1_array.append(self.word2index_lang1['EOS'])
 		lang2_array.append(self.word2index_lang2['EOS'])
