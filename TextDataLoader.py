@@ -1,6 +1,6 @@
 import torch
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from collections import defaultdict
 import os
 import unicodedata
@@ -100,7 +100,7 @@ def get_lang_dict(sentence_pairs):
 
 
 
-class TextLoader(Dataset):
+class TextDataset(Dataset):
 	"""docstring for TextLoader"""
 	def __init__(self, sentence_pairs, word2index_dict, index2word_dict):
 		super(TextLoader, self).__init__()
@@ -145,6 +145,20 @@ class TextLoader(Dataset):
 #		print(lang2_array)
 		# print(len(lang1_array))
 		return lang1_array, lang2_array
+
+def _collate_fn(batch):
+	lang1 = batch[0]
+	lang2 = batch[1]
+
+	
+
+class TextDataLoader(DataLoader):
+    def __init__(self, *args, **kwargs):
+        """
+        Creates a data loader for AudioDatasets.
+        """
+        super(TextDataLoader, self).__init__(*args, **kwargs)
+        self.collate_fn = _collate_fn
 
 
 		
