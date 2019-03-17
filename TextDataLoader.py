@@ -48,7 +48,7 @@ def read_lang_data(lang1, lang2, root='lang_data/wmt15-de-en/'):
     for data_file in lang1:
         data = open(os.path.join(root,data_file), encoding='utf-8').read().strip().split('\n')
         lang1_data.extend(data)
-    
+
     lang2_data = []
     for data_file in lang2:
         data = open(os.path.join(root,data_file), encoding='utf-8').read().strip().split('\n')
@@ -103,7 +103,7 @@ def get_lang_dict(sentence_pairs):
 class TextDataset(Dataset):
 	"""docstring for TextLoader"""
 	def __init__(self, sentence_pairs, word2index_dict, index2word_dict):
-		super(TextLoader, self).__init__()
+		super(TextDataset, self).__init__()
 		self.sentence_pairs = sentence_pairs
 		self.word2index_dict = word2index_dict
 		self.index2word_dict = index2word_dict
@@ -150,16 +150,40 @@ def _collate_fn(batch):
 	lang1 = batch[0]
 	lang2 = batch[1]
 
-	
+	def func(p):
+        return p[0].size(1)
 
-class TextDataLoader(DataLoader):
+    lang1 = sorted(lang1, key=lambda sample: sample[0].size(1), reverse=True)
+    longest_sample_lang1 = max(lang1, key=func)[0]
+    lang2 = sorted(lang2, key=lambda sample: sample[0].size(1), reverse=True)
+    longest_sample_lang2 = max(lang2, key=func)[0]
+    
+    minibatch_size = len(batch)
+    max_seqlength_lang1 = longest_sample_lang1.size(1)
+    max_seqlength_lang2 = longest_sample_lang2.size(1)
+
+    inputs_lang1 = torch.zeros(minibatch_size, 1, max_seqlength_lang1)
+    inputs_lang2 = torch.zeros(minibatch_size, 1, max_seqlength_lang2)
+
+    for x in range(minibatch_size):
+        sample_lang1 = lang1[x]
+        sample_lang2 = lang2[x]
+
+        seq_length_lang1 = sample_lang1.size(1)
+        seq_length_lang2 = sample_lang2.size(1)
+
+        inputs_lang1[x][0].narrow(1, seq_length_lang1).copy_(sample_lang1)
+        inputs_lang2[x][0].narrow(1, seq_length_lang2).copy_(sample_lang2)
+
+
+    return inputs_lang1, inputs_lang2
+
+
+
+class TextLoader(DataLoader):
     def __init__(self, *args, **kwargs):
         """
         Creates a data loader for AudioDatasets.
         """
-        super(TextDataLoader, self).__init__(*args, **kwargs)
+        super(TextLoader, self).__init__(*args, **kwargs)
         self.collate_fn = _collate_fn
-
-
-		
-
