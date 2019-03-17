@@ -119,16 +119,31 @@ class TextLoader(Dataset):
 		sentences = self.sentence_pairs[idx]
 		# print(sentences)
 		lang1_array = []
+#		for word in sentences[0].split(' '):
+#			print(len(self.word2index_dict))
+#			lang1_array.append(self.word2index_dict['lang1'][word])
 		for word in sentences[0].split(' '):
-			lang1_array.append(self.word2index_dict['lang1'][word])
+			if self.word2index_dict['lang1'][word]:
+				lang1_array.append(self.word2index_dict['lang1'][word])
+			else:
+				pass
 
-		lang1_array = [self.word2index_dict['lang1'][word] for word in sentences[0].split(' ')]
+		lang2_array = []
 
-		lang2_array = [self.word2index_dict['lang2'][word] for word in sentences[1].split(' ')]
+		for word in sentences[1].split(' '):
+			if self.word2index_dict['lang2'][word]:
+				lang2_array.append(self.word2index_dict['lang2'][word])
+			else:
+				pass
 
-		lang1_array.append(self.word2index_lang1['EOS'])
-		lang2_array.append(self.word2index_lang2['EOS'])
+		# lang1_array = [self.word2index_dict['lang1'][word] for word in sentences[0].split(' ')]
 
+		# lang2_array = [self.word2index_dict['lang2'][word] for word in sentences[1].split(' ')]
+
+		lang1_array.append(self.word2index_dict['lang1']['EOS'])
+		lang2_array.append(self.word2index_dict['lang2']['EOS'])
+#		print(lang2_array)
+		# print(len(lang1_array))
 		return lang1_array, lang2_array
 
 

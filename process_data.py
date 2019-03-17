@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torchvision import transforms, utils
 import string
 from tqdm import tqdm
+from string import digits
 try:
     maketrans = ''.maketrans
 except AttributeError:
@@ -66,6 +67,7 @@ def normalizeString(s):
     s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
     # table = string.maketrans(",")
     s = s.translate(maketrans("","", string.punctuation))
+    s = s.translate(maketrans("","", digits))
     return s
 
 
@@ -119,42 +121,57 @@ def get_lang_dict(sentence_pairs):
 
     index_1 = 2
     index_2 = 2
+    word_count_lang1 = defaultdict(int)
+    word_count_lang2 = defaultdict(int)
 
     for sentence_pair in tqdm(sentence_pairs):
         for word in sentence_pair[0].split(' '):
             if word in word2index_lang1:
-                pass
+                word_count_lang1[word] = word_count_lang1[word] + 1
+                # pass
             else:
                 word2index_lang1[word] = index_1
                 index_1 += 1
                 index2word_lang1[index_1] = word
 
+                word_count_lang1[word] = 1
+
         for word in sentence_pair[1].split(' '):
             if word in word2index_lang2:
-                pass
+                word_count_lang2[word] = word_count_lang2[word] + 1
+                # pass
             else:
                 word2index_lang2[word] = index_2
                 index_2 += 1
                 index2word_lang2[index_2] = word
+
+                word_count_lang2[word] = 1
+
     print(len(word2index_lang1), len(index2word_lang1))
     print(len(word2index_lang2), len(index2word_lang2))
 
-    return word2index_lang1, word2index_lang2, index2word_lang1, index2word_lang2
+    return word2index_lang1, word2index_lang2, index2word_lang1, index2word_lang2, word_count_lang1, word_count_lang2
 
 
 
 
-sentence_pairs = read_lang_data(['commoncrawl.de-en-de.txt', 'europarl-v7_de-en-de.txt', 'news-commentary-v10_de-en-de.txt'], \
-    ['commoncrawl.de-en-en.txt', 'europarl-v7_de-en-en.txt', 'news-commentary-v10_de-en-en.txt'])
-sentence_dict = {'data': sentence_pairs}
-pickle.dump(sentence_dict, open('paired_sentences.pkl', 'wb'))
-# sentences = pickle.load(open('paired_sentences.pkl', 'rb'))
-# sentence_pairs = sentences['data']
-word2index_lang1, word2index_lang2, index2word_lang1, index2word_lang2 = get_lang_dict(sentence_pairs)
+# sentence_pairs = read_lang_data(['commoncrawl.de-en-de.txt', 'europarl-v7_de-en-de.txt', 'news-commentary-v10_de-en-de.txt'], \
+#    ['commoncrawl.de-en-en.txt', 'europarl-v7_de-en-en.txt', 'news-commentary-v10_de-en-en.txt'])
+# sentence_dict = {'data': sentence_pairs}
+# pickle.dump(sentence_dict, open('paired_sentences_v2.pkl', 'wb'))
+
+
+sentences = pickle.load(open('paired_sentences_v2.pkl', 'rb'))
+sentence_pairs = sentences['data']
+
+
+word2index_lang1, word2index_lang2, index2word_lang1, index2word_lang2, word_count_lang1, word_count_lang2 = get_lang_dict(sentence_pairs)
 
 word2index_dict = {'lang1':word2index_lang1, 'lang2': word2index_lang2}
 index2word_dict = {'lang1': index2word_lang1, 'lang2': index2word_lang2}
+word_count = {'lang1': word_count_lang1, 'lang2': word_count_lang2}
 # sentence_dict = {'data': sentence_pairs}
 
-pickle.dump(word2index_lang1, open('word2index.pkl','wb'))
-pickle.dump(index2word_dict, open('index2word.pkl', 'wb'))
+pickle.dump(word2index_dict, open('word2index_v2.pkl','wb'))
+pickle.dump(index2word_dict, open('index2word_v2.pkl', 'wb'))
+pickle.dump(word_count, open('word_count.pkl', 'wb'))
