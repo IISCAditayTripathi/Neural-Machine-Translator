@@ -5,6 +5,7 @@ from collections import defaultdict
 import os
 import unicodedata
 import re
+import time
 
 class language(object):
     """docstring for language"""
@@ -147,37 +148,82 @@ class TextDataset(Dataset):
 		return lang1_array, lang2_array
 
 def _collate_fn(batch):
-	lang1 = batch[0]
-	lang2 = batch[1]
 
 	def func(p):
-        return p[0].size(1)
+		return len(p[0])
+	def func2(p):
+		return len(p[1])
+#	print(lang1)
+	lang1 = sorted(batch, key=lambda sample: len(sample[0]), reverse=True)
+	lang1_lengths = [len(i[0]) for i in lang1]
 
-    lang1 = sorted(lang1, key=lambda sample: sample[0].size(1), reverse=True)
-    longest_sample_lang1 = max(lang1, key=func)[0]
-    lang2 = sorted(lang2, key=lambda sample: sample[0].size(1), reverse=True)
-    longest_sample_lang2 = max(lang2, key=func)[0]
-    
-    minibatch_size = len(batch)
-    max_seqlength_lang1 = longest_sample_lang1.size(1)
-    max_seqlength_lang2 = longest_sample_lang2.size(1)
+	longest_sample_lang1 = max(lang1, key=func)[0]
+	lang2 = sorted(batch, key=lambda sample: len(sample[1]), reverse=True)
+	lang2_lengths = [len(i[1]) for i in lang2]
+	longest_sample_lang2 = max(lang2, key=func2)[1]    
+	
+	minibatch_size = len(batch)
+	max_seqlength_lang1 = len(longest_sample_lang1)
+	max_seqlength_lang2 = len(longest_sample_lang2)
+	num_classes_lang1 = 28656 
+	num_classes_lang2 = 29535
+	'''
+	inputs_lang1 = torch.zeros(minibatch_size, max_seqlength_lang1, num_classes_lang1, dtype=torch.long)
+	inputs_lang2 = torch.zeros(minibatch_size, max_seqlength_lang2, num_classes_lang2, dtype=torch.long)
+	
+	for x in range(minibatch_size):
+		sample_lang1 = batch[x][0]
+		sample_lang2 = batch[x][1]
+		for i in range(len(sample_lang1)):
+			inputs_lang1[x][i][sample_lang1[i]] = 1
+		for i in range(len(sample_lang2)):
+			inputs_lang2[x][i][sample_lang2[i]] = 1
 
-    inputs_lang1 = torch.zeros(minibatch_size, 1, max_seqlength_lang1)
-    inputs_lang2 = torch.zeros(minibatch_size, 1, max_seqlength_lang2)
+	return inputs_lang1, inputs_lang2, lang1_lengths, lang2_lengths
+	'''
+			# inputs_lang1[x].narrow(1, sample_lang1[i], sample_lang1[i]).copy_(1)
+	
+		# [inputs_lang1[x][i][sample_lang1[i]]=1 for i in range(len(sample_lang1))]
 
-    for x in range(minibatch_size):
-        sample_lang1 = lang1[x]
-        sample_lang2 = lang2[x]
+		# [inputs_lang1[x][i][sample_lang1[i]]=1 for i in range(len(sample_lang1))]
+		# print(i)
+		# print(inputs_lang1[1][i][sample_lang1[i]])
+	
 
-        seq_length_lang1 = sample_lang1.size(1)
-        seq_length_lang2 = sample_lang2.size(1)
-
-        inputs_lang1[x][0].narrow(1, seq_length_lang1).copy_(sample_lang1)
-        inputs_lang2[x][0].narrow(1, seq_length_lang2).copy_(sample_lang2)
+	# '''
+	inputs_lang1 = torch.zeros(minibatch_size, max_seqlength_lang1, dtype=torch.long)
+	inputs_lang2 = torch.zeros(minibatch_size, max_seqlength_lang2, dtype=torch.long)
 
 
-    return inputs_lang1, inputs_lang2
+	for x in range(minibatch_size):
+		sample_lang1 = batch[x][0]
+		sample_lang2 = batch[x][1]
 
+		seq_length_lang1 = len(sample_lang1)
+		seq_length_lang2 = len(sample_lang2)
+
+		sample_lang1 = torch.tensor(sample_lang1, dtype= torch.long)
+		sample_lang2 = torch.tensor(sample_lang2, dtype = torch.long)
+#		print(sample_lang1.shape)
+		sample_lang1 = sample_lang1.view(sample_lang1.shape[0])
+		sample_lang2 = sample_lang2.view(sample_lang2.shape[0])
+
+		inputs_lang1[x].narrow(0, 0, seq_length_lang1).copy_(sample_lang1)
+		inputs_lang2[x].narrow(0, 0, seq_length_lang2).copy_(sample_lang2)
+
+
+	
+# 	labels_one_hot_lang1 = torch.LongTensor(minibatch_size, max_seqlength_lang1, num_classes_lang1).zero_()
+# #	print(labels_one_hot_lang1.shape)
+# #	print(inputs_lang1.shape)
+# 	labels_one_hot_lang1.scatter_(2, inputs_lang1, 1.0)
+
+# 	labels_one_hot_lang2 = torch.LongTensor(minibatch_size, max_seqlength_lang2, num_classes_lang2).zero_()
+# 	labels_one_hot_lang2.scatter_(2, inputs_lang2, 1.0)
+	# 
+
+	return inputs_lang1, inputs_lang2, lang1_lengths, lang2_lengths
+	# '''
 
 
 class TextLoader(DataLoader):
