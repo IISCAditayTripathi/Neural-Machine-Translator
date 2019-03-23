@@ -161,8 +161,8 @@ def get_lang_dict(sentence_pairs):
 # pickle.dump(sentence_dict, open('paired_sentences_v2.pkl', 'wb'))
 
 
-sentences = pickle.load(open('paired_sentences_v2.pkl', 'rb'))
-sentence_pairs = sentences['data']
+# sentences = pickle.load(open('paired_sentences_v2.pkl', 'rb'))
+# sentence_pairs = sentences['data']
 
 
 word2index_lang1, word2index_lang2, index2word_lang1, index2word_lang2, word_count_lang1, word_count_lang2 = get_lang_dict(sentence_pairs)

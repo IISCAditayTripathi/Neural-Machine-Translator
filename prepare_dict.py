@@ -13,8 +13,8 @@ english_data = open('/scratche/home/aditay/NLU_assignment2/lang_data/wmt15-de-en
 
 
 
-german_data = german_data[0:800000]
-english_data = english_data[0:800000]
+german_data = german_data[0:2000000]
+english_data = english_data[0:2000000]
 
 def normalizeString(s):
     # s = unicodeToAscii(s.lower().strip())

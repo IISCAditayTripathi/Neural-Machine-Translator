@@ -13,7 +13,9 @@ from collections import namedtuple
 import numpy as np
 from typing import List, Tuple, Dict, Set, Union
 from tqdm import tqdm
+from collections import namedtuple
 
+Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
 
 def init_weights(m):
 	if type(m) == nn.Linear:
@@ -22,7 +24,7 @@ def init_weights(m):
 
 class NMT(nn.Module):
 	"""docstring for NMT"""
-	def __init__(self, embedding_size, hidden_size, src_vocab_size, target_vocab_size,device, dropout_rate=0.2, feed_input = True ):
+	def __init__(self, embedding_size, hidden_size, src_vocab_size, target_vocab_size,device, target_dict, index2word, dropout_rate=0.2, feed_input = True ):
 		super(NMT, self).__init__()
 		self.embedding_size = embedding_size
 		self.hidden_size = hidden_size
@@ -61,6 +63,8 @@ class NMT(nn.Module):
 		self.dropout = nn.Dropout(self.dropout_rate)
 		self.decoder_cell_init = nn.Linear(hidden_size * 2, hidden_size)
 		self.decoder_cell_init.apply(init_weights)
+		self.target_dict = target_dict
+		self.index2word = index2word
 
 		# self.loss = F.NLLLoss()
 
@@ -172,6 +176,93 @@ class NMT(nn.Module):
 		att_t = self.dropout(att_t)
 
 		return (h_t, cell_t), att_t, alpha_t
+
+
+
+	def beam_search(self, src_sent, beam_size=5, max_decoding_time_step=500):
+		src_encodings, dec_init_vec = self.encode(src_sent, [len(src_sent)])
+		src_encodings_att_linear = self.att_src_linear(src_encodings)
+
+		h_tm1 = dec_init_vec
+		att_tm1 = torch.zeros(1, self.hidden_size, device=self.device)
+
+		eos_id = self.target_dict['EOS']
+
+		hypotheses = [['SOS']]
+		hyp_scores = torch.zeros(len(hypotheses), dtype=torch.float, device=self.device)
+		completed_hypotheses = []
+
+		t = 0
+		while len(completed_hypotheses) < beam_size and t < max_decoding_time_step:
+			t += 1
+			hyp_num = len(hypotheses)
+
+			exp_src_encodings = src_encodings.expand(hyp_num,
+													src_encodings.size(1),
+													src_encodings.size(2))
+
+			exp_src_encodings_att_linear = src_encodings_att_linear.expand(hyp_num,
+																			src_encodings_att_linear.size(1),
+																			src_encodings_att_linear.size(2))
+
+			y_tm1 = torch.tensor([self.target_dict[hyp[-1]] for hyp in hypotheses], dtype=torch.long, device=self.device)
+			y_tm1_embed = self.target_embedding(y_tm1)
+
+			if self.feed_input:
+				x = torch.cat([y_tm1_embed, att_tm1], dim=-1)
+			else:
+				x = y_tm1_embed
+
+			(h_t, cell_t), att_t, alpha_t = self.step(x, h_tm1,
+														exp_src_encodings, exp_src_encodings_att_linear, src_sent_masks=None)
+
+			# log probabilities over target words
+			log_p_t = F.log_softmax(self.readout(att_t), dim=-1)
+
+			live_hyp_num = beam_size - len(completed_hypotheses)
+			contiuating_hyp_scores = (hyp_scores.unsqueeze(1).expand_as(log_p_t) + log_p_t).view(-1)
+			top_cand_hyp_scores, top_cand_hyp_pos = torch.topk(contiuating_hyp_scores, k=live_hyp_num)
+
+			prev_hyp_ids = top_cand_hyp_pos / len(self.target_dict)
+			hyp_word_ids = top_cand_hyp_pos % len(self.target_dict)
+
+			new_hypotheses = []
+			live_hyp_ids = []
+			new_hyp_scores = []
+
+			for prev_hyp_id, hyp_word_id, cand_new_hyp_score in zip(prev_hyp_ids, hyp_word_ids, top_cand_hyp_scores):
+				prev_hyp_id = prev_hyp_id.item()
+				hyp_word_id = hyp_word_id.item()
+				cand_new_hyp_score = cand_new_hyp_score.item()
+
+				hyp_word = self.index2word[hyp_word_id]
+				new_hyp_sent = hypotheses[prev_hyp_id] + [hyp_word]
+				if hyp_word == 'EOS':
+					completed_hypotheses.append(Hypothesis(value=new_hyp_sent[1:-1],
+															score=cand_new_hyp_score))
+				else:
+					new_hypotheses.append(new_hyp_sent)
+					live_hyp_ids.append(prev_hyp_id)
+					new_hyp_scores.append(cand_new_hyp_score)
+
+			if len(completed_hypotheses) == beam_size:
+				break
+
+			live_hyp_ids = torch.tensor(live_hyp_ids, dtype=torch.long, device=self.device)
+			h_tm1 = (h_t[live_hyp_ids], cell_t[live_hyp_ids])
+			att_tm1 = att_t[live_hyp_ids]
+
+			hypotheses = new_hypotheses
+			hyp_scores = torch.tensor(new_hyp_scores, dtype=torch.float, device=self.device)
+
+		if len(completed_hypotheses) == 0:
+			completed_hypotheses.append(Hypothesis(value=hypotheses[0][1:],
+										score=hyp_scores[0].item()))
+
+		completed_hypotheses.sort(key=lambda hyp: hyp.score, reverse=True)
+
+		return completed_hypotheses
+
 
 
 

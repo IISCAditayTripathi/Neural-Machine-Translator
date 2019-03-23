@@ -4,7 +4,7 @@ from collections import defaultdict
 from tqdm import tqdm
 
 
-word_counts = pickle.load(open('word_count.pkl', 'rb'))
+word_counts = pickle.load(open('word_count_v4.pkl', 'rb'))
 word_counts_lang1 = word_counts['lang1']
 sorted_word_counts_lang1 = sorted(word_counts_lang1.items(), key=operator.itemgetter(1))
 
@@ -53,6 +53,8 @@ for key, count in tqdm(sorted_word_counts_lang2):
 
 print(len(word2index_lang1), len(index2word_lang1))
 print(len(word2index_lang2), len(index2word_lang2))
+
+aditay
 
 word2index_dict = {'lang1':word2index_lang1, 'lang2': word2index_lang2}
 index2word_dict = {'lang1': index2word_lang1, 'lang2': index2word_lang2}
