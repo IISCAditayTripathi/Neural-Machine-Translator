@@ -1,3 +1,4 @@
+ #!/usr/bin/env python3 -W ignore::DeprecationWarning
 import torch
 import torch
 import torch.nn as nn
@@ -6,7 +7,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
-device = torch.device('cuda:1')
+device = torch.device('cuda:0')
 
 class EncoderRNN(nn.Module):
 	"""docstring for EncoderRNN"""
@@ -23,9 +24,9 @@ class EncoderRNN(nn.Module):
 
 
 	def forward(self, source_sentence, source_sentence_len, hidden=None):
-		embedded_sentences = self.embedding(source_sentence).view(1, 1, -1)
-		output = output.view(embedded_sentences.shape[1], embedded_sentences.shape[0], embedded_sentences.shape[2])
-		packed_output = pack_padded_sequence(embedded_sentences, source_sentence_len)
+		embedded_sentences = self.embedding(source_sentence)
+		outputs = embedded_sentences.view(embedded_sentences.shape[1], embedded_sentences.shape[0], embedded_sentences.shape[2])
+		packed_output = pack_padded_sequence(outputs, source_sentence_len)
 
 		outputs, hidden = self.GRU(packed_output, hidden)
 
@@ -58,16 +59,19 @@ class Attention(nn.Module):
 
 		batch_size = encoder_outputs.size(1)
 
-		attention_weights = Variable(torch.zeros(this_batch_size, max_len))
+		attention_weights = Variable(torch.zeros(batch_size, max_length))
 
 		attention_weights = attention_weights.to(device)
 
-		for b in len(batch_size):
-			for i in range(max_len):
+		for b in range(batch_size):
+			for i in range(max_length):
+				attention_weights[b, i] = self.score(hidden[:, b].squeeze(0), encoder_outputs[i, b].squeeze(0))
 
-				attn_energies[b, i] = self.score(hidden[:, b], encoder_outputs[i, b].unsqueeze(0))
+		normalized_attention = F.softmax(attention_weights).unsqueeze(1)
+		# normalized_attention = nn.Softmax(attention_weights)
+		# normalized_attention = normalized_attention.unsqueeze(1)
 
-		return F.softmax(attn_energies).unsqueeze(1)
+		return normalized_attention
 
 	def score(self, hidden, encoder_output):
 		
@@ -86,18 +90,18 @@ class Attention(nn.Module):
 			weight = self.v.dot(weight)
 			return weight
 
-class AttenDecoderRNN(object):
+class AttenDecoderRNN(nn.Module):
 	"""docstring for AttenDecoderRNN"""
-	def __init__(self, attention_model, hidden_size, target_vocab_size, n_layers=1, dropout=0.1):
+	def __init__(self, attention_model, hidden_size, target_vocab_size, n_layers=2, dropout=0.1):
 		super(AttenDecoderRNN, self).__init__()
-		self.atten_model = atten_model
+		self.atten_model = attention_model
 		self.hidden_size = hidden_size
-		self.target_vocab_size. = target_vocab_size
+		self.target_vocab_size = target_vocab_size
 		self.n_layers = n_layers
 		self.dropout = dropout
 
 		self.embedding = nn.Embedding(self.target_vocab_size, self.hidden_size)
-		self.embedding_dropout = nn.Dropout(dropout=self.dropout)
+		self.embedding_dropout = nn.Dropout(self.dropout)
 		self.GRU = nn.GRU(self.hidden_size, self.hidden_size, self.n_layers, dropout=self.dropout)
 
 		self.concat = nn.Linear(2*self.hidden_size, self.hidden_size)
@@ -125,11 +129,11 @@ class AttenDecoderRNN(object):
 
 		concat_input = torch.cat((rnn_output, context), 1)
 
-		concat_output = F.tanh(self.concat(concat_input))
+		concat_output = torch.tanh(self.concat(concat_input))
 
 		output = self.out(concat_output)
 
-		return output, hidden, attn_weights
+		return output, hidden, attention_weights
 
 
 
