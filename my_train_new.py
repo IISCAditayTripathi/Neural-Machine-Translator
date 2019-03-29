@@ -15,19 +15,19 @@ from torch.nn import functional as F
 from NMT import NMT
 # from tensorboardX import SummaryWriter
 # import console
-from new_NMT import EncoderRNN, AttenDecoderRNN
+from new_NMT2 import EncoderRNN, AttenDecoderRNN
 from masked_cross_entropy import *
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--batch_size', type=int, default=10)
-parser.add_argument('--dropout', type=float, default=0.4)
+parser.add_argument('--batch_size', type=int, default=1)
+parser.add_argument('--dropout', type=float, default=0.1)
 parser.add_argument('--shuffle_data', type=bool, default=True)
 parser.add_argument('--num_workers', type=int, default=0)
-parser.add_argument('--embed_size', type=int, default=128)
-parser.add_argument('--hidden_size', type=int, default=128)
-parser.add_argument('--lr', type=float, default=0.001)
-parser.add_argument('--nb_epochs', type=int, default=2)
+parser.add_argument('--embed_size', type=int, default=256)
+parser.add_argument('--hidden_size', type=int, default=256)
+parser.add_argument('--lr', type=float, default=0.0001)
+parser.add_argument('--nb_epochs', type=int, default=30)
 parser.add_argument('--clip_grad', type=float, default=50.0)
 parser.add_argument('--mode', type=str, default='train')
 parser.add_argument('--attention', type=str, default='dot')
@@ -38,14 +38,14 @@ os.environ["CUDA_VISIBLE_DEVICES"]="0"
 args = parser.parse_args()
 
 
-sentences = pickle.load(open('paired_sentences_v5.pkl', 'rb'))
+sentences = pickle.load(open('paired_sentences_v5_50.pkl', 'rb'))
 sentence_pairs = sentences['data']
 
-train_sentence_pairs = sentence_pairs[0:10]
-valid_sentence_pairs = sentence_pairs[170000:180000]
+train_sentence_pairs = sentence_pairs[0:180000]
+valid_sentence_pairs = sentence_pairs[180000:]
 
-word2index_dict = pickle.load(open('word2index_v5.pkl','rb'))
-index2word_dict = pickle.load(open('index2word_v5.pkl', 'rb'))
+word2index_dict = pickle.load(open('word2index_v5_50.pkl','rb'))
+index2word_dict = pickle.load(open('index2word_v5_50.pkl', 'rb'))
 
 
 lang1_size = len(word2index_dict['lang1'])
@@ -62,7 +62,7 @@ def train():
 	data_loader = TextLoader(text_dataset_train, batch_size=args.batch_size, shuffle=args.shuffle_data, num_workers=args.num_workers)
 
 	text_dataset_valid = TextDataset(valid_sentence_pairs, word2index_dict, index2word_dict)
-	data_loader_valid = TextLoader(text_dataset_valid, batch_size=args.batch_size, shuffle=args.shuffle_data, num_workers=args.num_workers)
+	data_loader_valid = TextLoader(text_dataset_valid, batch_size=1, shuffle=args.shuffle_data, num_workers=args.num_workers)
 
 	train_encoder = EncoderRNN(hidden_size=args.hidden_size, source_vocab_size=lang1_size)
 	train_decoder = AttenDecoderRNN(target_vocab_size=lang2_size, hidden_size=args.hidden_size, attention_model=args.attention)
@@ -81,7 +81,7 @@ def train():
 	criterion.to(device)
 
 	loss = 0
-
+	i = 0
 	for epoch in range(args.nb_epochs):
 		for phase in ['train', 'valid']:
 			if phase == 'train':
@@ -94,19 +94,24 @@ def train():
 			if phase == 'train':
 				loader = tqdm(data_loader, total=len(data_loader), unit="batches")
 				running_loss = 0
-
+				decoder_init_input = Variable(torch.LongTensor([word2index_dict['lang2']['SOS']] * args.batch_size)).to(device)
 				for i_batch, data in enumerate(loader):
+					i += 1
 					inputs_lang1 = data[0].to(device) 
 					inputs_lang2 = data[1].to(device)
 					lang1_lengths = torch.tensor(data[2]).to(device)
 					lang2_lengths = torch.tensor(data[3]).to(device)
 
-					loss = train_step(inputs_lang1, lang1_lengths, inputs_lang2, lang2_lengths, train_encoder, train_decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=data[3][0])
+					loss = train_step(inputs_lang1, lang1_lengths, inputs_lang2, lang2_lengths, train_encoder, train_decoder, encoder_optimizer, decoder_optimizer, criterion, decoder_init_input, max_length=data[3][0])
 					running_loss += loss
+#					if (i %10) == 0:
+#						print(i_batch, running_loss/i_batch)
 					loader.set_postfix(Loss=running_loss/(i_batch+1))
 					# loader.set_description('{}/{}'.format(epoch, args.nb_epochs))
 					# loader.update()
-	
+				torch.save(train_encoder.state_dict(), 'checkpoints/new_checkpoint_30_2/NMT_encoder_'+str(args.attention)+str(epoch)+'_'+str(running_loss/i_batch)+'.pt')
+				torch.save(train_decoder.state_dict(), 'checkpoints/new_checkpoint_30_2/NMT_decoder_'+str(args.attention)++str(epoch)+'_'+str(running_loss/i_batch)+'.pt')
+
 
 				# loader.set_postfix('{}/{} Loss:{}'.format(epoch, args.nb_epochs, running_loss/(i_batch+1)))
 def masked_loss(all_decoder_outputs, input_batch_tgt):
@@ -125,36 +130,40 @@ def masked_loss(all_decoder_outputs, input_batch_tgt):
 
 
 
-def train_step(input_batch_src, source_sent_len, input_batch_tgt, target_sent_len, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=50):
+def train_step(input_batch_src, source_sent_len, input_batch_tgt, target_sent_len, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, decoder_init_input, max_length=50):
 	encoder_optimizer.zero_grad()
 	decoder_optimizer.zero_grad()
 	loss = 0
 
 	encoder_outputs, encoder_hidden = encoder(input_batch_src, source_sent_len, None)
 
-	decoder_input = Variable(torch.LongTensor([word2index_dict['lang2']['SOS']] * args.batch_size))
-
+#	decoder_input = Variable(torch.LongTensor([word2index_dict['lang2']['SOS']] * args.batch_size))
+	decoder_input = decoder_init_input
 	decoder_hidden = encoder_hidden[:decoder.n_layers]
 
 	max_target_length = target_sent_len[0]
 
-	all_decoder_outputs = Variable(torch.zeros(max_target_length, args.batch_size, decoder.target_vocab_size))
+#	all_decoder_outputs = Variable(torch.zeros(max_target_length, args.batch_size, decoder.target_vocab_size))
 
-	decoder_input = decoder_input.to(device)
-	all_decoder_outputs = all_decoder_outputs.to(device)
+#	decoder_input = decoder_input.to(device)
+
+#	all_decoder_outputs = all_decoder_outputs.to(device)
 	input_batch_tgt = input_batch_tgt.permute(1,0)
 	i = 0
+	all_decoder_outputs = []
 	# for t in torch.arange(max_target_length):
 	for target_words in  input_batch_tgt.split(split_size=1):
+#		print(decoder_input.shape)
 		decoder_output, decoder_hidden, decoder_attn = decoder(decoder_input, decoder_hidden, encoder_outputs)
 
-		all_decoder_outputs[i] = decoder_output
-		i += 1
+#		all_decoder_outputs[i] = decoder_output
+#		i += 1
+		all_decoder_outputs.append(decoder_output)
 		# decoder_input = input_batch_tgt[:,t]
 		decoder_input = target_words.permute(1,0)
 
 	# loss = masked_cross_entropy(all_decoder_outputs.transpose(0, 1).contiguous(), input_batch_tgt.transpose(0, 1).contiguous(), target_sent_len)
-
+	all_decoder_outputs = torch.stack(all_decoder_outputs)
 	all_decoder_outputs = all_decoder_outputs.view(-1, lang2_size)
 	input_batch_tgt = input_batch_tgt.contiguous().view(-1)
 
