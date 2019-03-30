@@ -77,26 +77,8 @@ class Attention(nn.Module):
 
 		batch_size = encoder_outputs.size(1)
 
-		# attention_weights = Variable(torch.zeros(batch_size, max_length))
-		attention_weights = torch.ones(batch_size, max_length, device=device)
-
-		# print(hidden.unsqueeze(1).shape)
-		# print(encoder_outputs.transpose(1,0).transpose(2,1).shape)
-
-		# attention_weights = attention_weights.to(device)
 		attention_weights = self.score(hidden, encoder_outputs)
-
-		# for b in torch.arange(batch_size):
-		# 	for i in torch.arange(max_length):
-		# 		# print(hidden[b,:].shape)
-		# 		print(hidden[b,:].shape)
-		# 		print(encoder_outputs[i,b].shape)
-		# 		attention_weights[b, i] = torch.bmm(hidden[b,:], encoder_outputs[i,b].squeeze(0))
-				# attention_weights[b, i] = self.score(hidden[b,:], encoder_outputs[i, b].squeeze(0))
-
 		normalized_attention = F.softmax(attention_weights).unsqueeze(1)
-		# normalized_attention = nn.Softmax(attention_weights)
-		# normalized_attention = normalized_attention.unsqueeze(1)
 
 		return normalized_attention
 	# @profile
@@ -105,22 +87,24 @@ class Attention(nn.Module):
 		if self.method == 'dot':
 			hidden = hidden.unsqueeze(1)
 			encoder_output = encoder_output.transpose(1,0).transpose(2,1)
-			# print(hidden.shape)
-			# weight = hidden.dot(encoder_output)
 			weight = torch.bmm(hidden, encoder_output)
-			# print(weight.shape)
 			return weight.squeeze(1)
 
 		elif self.method == 'general':
 
 			weight = self.atten(encoder_output)
-			weight = hidden.dot(weight)
-			return weight
+			hidden = hidden.unsqueeze(1)
+			weight = weight.transpose(1,0).transpose(2,1)
+			weight = torch.bmm(hidden, weight)
+			return weight.squeeze(1)
 
 		elif self.method == 'concatenate':
-			weight = self.atten(torch.concat((hidden, encoder_output), 1))
-			weight = self.v.dot(weight)
-			return weight
+
+			hidden = hidden.expand(encoder_output.size())
+			weight = self.atten(torch.cat((hidden, encoder_output), 2))
+			weight = weight.transpose(1,0).transpose(2,1)
+			weight = torch.bmm(self.v.expand(weight.size(0),self.v.size(0), self.v.size(1)), weight)
+			return weight.squeeze(1)
 
 class AttenDecoderRNN(nn.Module):
 	"""docstring for AttenDecoderRNN"""
