@@ -1,6 +1,7 @@
 from TextDataLoader import TextLoader, TextDataset
 import os
 import torch
+# from skimage import io, transform
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
@@ -9,10 +10,9 @@ import pickle
 from tqdm import tqdm
 import argparse
 from torch.nn import functional as F
-
-
-from new_NMT_lstm import EncoderRNN, AttenDecoderRNN
-
+# from tensorboardX import SummaryWriter
+# import console
+from new_NMT_lstm import EncoderRNN, AttenDecoderRNN, BahdanauDecoder
 
 parser = argparse.ArgumentParser()
 
@@ -22,9 +22,9 @@ parser.add_argument('--shuffle_data', type=bool, default=True)
 parser.add_argument('--num_workers', type=int, default=25)
 parser.add_argument('--embed_size', type=int, default=256)
 parser.add_argument('--hidden_size', type=int, default=256)
-parser.add_argument('--lr', type=float, default=0.0002)
-parser.add_argument('--nb_epochs', type=int, default=20)
-parser.add_argument('--clip_grad', type=float, default=50.0)
+parser.add_argument('--lr', type=float, default=0.0001)
+parser.add_argument('--nb_epochs', type=int, default=50)
+parser.add_argument('--clip_grad', type=float, default=5.0)
 parser.add_argument('--mode', type=str, default='train')
 parser.add_argument('--attention', type=str, default='dot')
 parser.add_argument('--decoder_learning_ratio', type=float, default=5.0)
@@ -43,6 +43,7 @@ valid_sentence_pairs = sentence_pairs[144000:162000]
 
 test_sentence_pairs = sentence_pairs[162000:]
 
+
 word2index_dict = pickle.load(open('word2index_v5_50.pkl','rb'))
 index2word_dict = pickle.load(open('index2word_v5_50.pkl', 'rb'))
 
@@ -50,7 +51,7 @@ index2word_dict = pickle.load(open('index2word_v5_50.pkl', 'rb'))
 lang1_size = len(word2index_dict['lang1'])
 lang2_size = len(word2index_dict['lang2'])
 
-
+# index2word_lang2 = index2word['lang2']
 
 use_cuda = torch.cuda.is_available()
 device = torch.device(args.gpu if use_cuda else "cpu")
@@ -64,7 +65,7 @@ def train():
 	data_loader_valid = TextLoader(text_dataset_valid, batch_size=1, shuffle=args.shuffle_data, num_workers=args.num_workers)
 
 	train_encoder = EncoderRNN(hidden_size=args.hidden_size, source_vocab_size=lang1_size)
-	train_decoder = AttenDecoderRNN(target_vocab_size=lang2_size, hidden_size=args.hidden_size, attention_model=args.attention)
+	train_decoder = BahdanauDecoder(target_vocab_size=lang2_size, hidden_size=args.hidden_size, attention_model=args.attention)
 
 	train_encoder = train_encoder.to(device)
 	train_decoder = train_decoder.to(device)
@@ -108,12 +109,26 @@ def train():
 					loader.set_postfix(Loss=running_loss/(i_batch+1))
 					# loader.set_description('{}/{}'.format(epoch, args.nb_epochs))
 					# loader.update()
-				torch.save(train_encoder.state_dict(), 'checkpoints/new_checkpoint_50_LSTM_50/NMT_encoder_'+str(args.attention)+str(epoch)+'_'+str(running_loss/i_batch)+'.pt')
-				torch.save(train_decoder.state_dict(), 'checkpoints/new_checkpoint_50_LSTM_50/NMT_decoder_'+str(args.attention)+str(epoch)+'_'+str(running_loss/i_batch)+'.pt')
+				torch.save(train_encoder.state_dict(), 'checkpoints/new_checkpoint_50_LSTM/NMT_encoder_bhanudu_he'+str(args.attention)+str(epoch)+'_'+str(running_loss/i_batch)+'.pt')
+				torch.save(train_decoder.state_dict(), 'checkpoints/new_checkpoint_50_LSTM/NMT_decoder_bhanudu_he'+str(args.attention)+str(epoch)+'_'+str(running_loss/i_batch)+'.pt')
 
 			if phase == 'valid':
 				validation()
 				
+
+
+				# loader.set_postfix('{}/{} Loss:{}'.format(epoch, args.nb_epochs, running_loss/(i_batch+1)))
+def masked_loss(all_decoder_outputs, input_batch_tgt):
+
+	tgt_words_mask = (input_batch_tgt != 0).float()
+	all_decoder_outputs = all_decoder_outputs.transpose(1,0)
+	tgt_words_log_prob = F.log_softmax(all_decoder_outputs, dim=-1)
+	input_batch_tgt =  input_batch_tgt.unsqueeze(2)
+
+	loss = torch.gather(tgt_words_log_prob, index=input_batch_tgt, dim=-1).squeeze(-1) * tgt_words_mask
+
+	return loss.sum()
+
 
 
 def train_step(input_batch_src, source_sent_len, input_batch_tgt, target_sent_len, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, decoder_init_input, max_length=50):
@@ -144,10 +159,6 @@ def train_step(input_batch_src, source_sent_len, input_batch_tgt, target_sent_le
 	# for t in torch.arange(max_target_length):
 	for target_words in  input_batch_tgt.split(split_size=1):
 		# print(decoder_input.shape)
-		# print(decoder_hidden.shape)
-		# print(encoder_outputs.shape)
-		# print(cell_input.shape)
-		# aditay
 		decoder_output, decoder_hidden, cell_input, decoder_attn = decoder(decoder_input, decoder_hidden, encoder_outputs, cell_input)
 
 #		all_decoder_outputs[i] = decoder_output
@@ -217,30 +228,32 @@ def validation(valid_loader):
 			loader.set_postfix(loss/i_batch)
 
 
-
-def evaluate_sentence():
-	pass
-
 def evaluate(max_length=50):
       
+        
+    # Set to not-training mode to disable dropout
+    # encoder.train(False)
+    # decoder.train(False)
 
+    # encoder.eval()
+    # decoder.eval()
 	device = torch.device('cuda:0')
 	encoder = EncoderRNN(hidden_size=args.hidden_size, source_vocab_size=lang1_size)
-	decoder = AttenDecoderRNN(target_vocab_size=lang2_size, hidden_size=args.hidden_size, attention_model=args.attention)
+	decoder = BahdanauDecoder(target_vocab_size=lang2_size, hidden_size=args.hidden_size, attention_model=args.attention)
 	encoder = encoder.to(device)
 	decoder = decoder.to(device)
 	
-	encoder.load_state_dict(torch.load('/scratche/home/aditay/NLU_assignment2/checkpoints/new_checkpoint_50_LSTM_50/NMT_encoder_general49_2.3882797183709594.pt', map_location='cuda:0'))
-	decoder.load_state_dict(torch.load('/scratche/home/aditay/NLU_assignment2/checkpoints/new_checkpoint_50_LSTM_50/NMT_decoder_general49_2.3882797183709594.pt', map_location='cuda:0'))
+	encoder.load_state_dict(torch.load('/scratche/home/aditay/NLU_assignment2/checkpoints/new_checkpoint_50_LSTM/NMT_encoder_bhanududot49_2.390987828460857.pt', map_location='cuda:0'))
+	decoder.load_state_dict(torch.load('/scratche/home/aditay/NLU_assignment2/checkpoints/new_checkpoint_50_LSTM/NMT_decoder_bhanududot49_2.390987828460857.pt', map_location='cuda:0'))
 	encoder.eval()
 	decoder.eval()
 
-	text_dataset_valid = TextDataset(valid_sentence_pairs, word2index_dict, index2word_dict)
+	text_dataset_valid = TextDataset(test_sentence_pairs, word2index_dict, index2word_dict)
 	data_loader_valid = TextLoader(text_dataset_valid, batch_size=1, shuffle=args.shuffle_data, num_workers=args.num_workers)
 	loader = tqdm(data_loader_valid, total=len(data_loader_valid), unit="batches")
-	original_english_text = open('original_general_english_text.txt', 'w')
-	original_german_text = open('original_general_german_text.txt', 'w')
-	predicted_english = open('predicted_genaral_english_text.txt', 'w')
+	original_english_text = open('original_bandu_english_text.txt', 'w')
+	original_german_text = open('original_bandu_german_text.txt', 'w')
+	predicted_english = open('predicted_bandu_english_text.txt', 'w')
 	# decoder_input = Variable(torch.LongTensor([word2index_dict['lang2']['SOS']] * args.batch_size)).to(device)
 
 	for i_batch, data in enumerate(loader):
@@ -296,7 +309,7 @@ def evaluate(max_length=50):
 		# print(decoded_words)
 		predicted_english.write('\n')
 
-	# return decoded_words, decoder_attentions[:i+1, :len(encoder_outputs)]
+	return decoded_words, decoder_attentions[:i+1, :len(encoder_outputs)]
 
 
 

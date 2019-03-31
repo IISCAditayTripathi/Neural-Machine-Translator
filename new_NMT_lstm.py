@@ -29,11 +29,7 @@ class EncoderRNN(nn.Module):
 
 	def forward(self, source_sentence, source_sentence_len, hidden=None):
 		embedded_sentences = self.embedding(source_sentence)
-		# print(embedded_sentences.shape)
-		# outputs = embedded_sentences.view(embedded_sentences.shape[1], embedded_sentences.shape[0], embedded_sentences.shape[2])
-		# print(outputs.shape)
 		outputs = embedded_sentences.transpose(1,0)
-		# print(outputs.shape)
 		packed_output = pack_padded_sequence(outputs, source_sentence_len)
 
 		outputs, (hidden, cell_state) = self.GRU(packed_output)
@@ -87,10 +83,10 @@ class Attention(nn.Module):
 		if self.method == 'dot':
 			hidden = hidden.unsqueeze(1)
 			encoder_output = encoder_output.transpose(1,0).transpose(2,1)
-			weight = torch.bmm(hidden, encoder_output)
+			weight = torch.bmm(hidden, encoder_output)/self.hidden_size
 			return weight.squeeze(1)
 
-		elif self.method == 'general':
+		elif self.method == 'mul':
 
 			weight = self.atten(encoder_output)
 			hidden = hidden.unsqueeze(1)
@@ -104,8 +100,41 @@ class Attention(nn.Module):
 			weight = self.atten(torch.cat((hidden, encoder_output), 2))
 			weight = weight.transpose(1,0).transpose(2,1)
 			weight = torch.bmm(self.v.expand(weight.size(0),self.v.size(0), self.v.size(1)), weight)
-			return weight.squeeze(1)
+			return F.softmax(weight.squeeze(1))
+class BahdanauDecoder(nn.Module):
+	"""docstring for BahdanauDecoder"""
+	def __init__(self, attention_model, hidden_size, target_vocab_size, n_layers=1, dropout=0.1):
+		super(BahdanauDecoder, self).__init__()
+		self.atten_model = attention_model
+		self.hidden_size = hidden_size
+		self.target_vocab_size = target_vocab_size
+		self.n_layers = n_layers
+		# self.dropout = dropout
 
+		self.embedding = nn.Embedding(self.target_vocab_size, self.hidden_size)
+		self.dropout = nn.Dropout(dropout)
+		self.attention = Attention('concatenate', self.hidden_size)
+		self.lstm = nn.LSTMCell(self.hidden_size*2, self.hidden_size, bias=True)
+		self.out = nn.Linear(self.hidden_size*2, self.target_vocab_size)
+
+	def forward(self, input_seq, last_hidden, encoder_outputs, cell_input):
+		embedded = self.embedding(input_seq)
+		embedded = self.dropout(embedded)
+
+		attention_weights = self.attention(last_hidden[-1], encoder_outputs)
+
+
+		attention = torch.bmm(attention_weights, encoder_outputs.transpose(1,0))
+
+
+		lstm_input = torch.cat((embedded, attention.squeeze(1)),1)
+
+		hidden, cell_state = self.lstm(lstm_input, (last_hidden, cell_input))
+
+		output = self.out(torch.cat((hidden, attention.squeeze(1)),1))
+		
+		return output, hidden, cell_state, attention_weights
+		
 class AttenDecoderRNN(nn.Module):
 	"""docstring for AttenDecoderRNN"""
 	def __init__(self, attention_model, hidden_size, target_vocab_size, n_layers=1, dropout=0.1):
@@ -131,40 +160,20 @@ class AttenDecoderRNN(nn.Module):
 
 		embedded = self.embedding(input_seq)
 		embedded = self.embedding_dropout(embedded)
-		# print(embedded.shape)
-		# aditay
-		# embedded = embedded.unsqueeze(0)
-		# print(embedded.shape)
-		# print(last_hidden.shape)
-		# print(cell_input.shape)
-		# embedded = embedded.view(1, batch_size, self.hidden_size)
-		# print(embedded.shape)
-		# embedded = embedded.view(1, batch_size, self.hidden_size)
-		# print(last_hidden.shape)
-		# print(cell_input.shape)
-		# print(embedded.shape)
-		hidden, cell_state = self.GRU(embedded, (last_hidden, cell_input))
-		# print(hidden.shape)
-		# print(hidden.shape)
-		# print(encoder_outputs.shape)
 
-		attention_weights = self.atten(hidden, encoder_outputs)
-		# print(aditay)
-		# print(encoder_outputs.shape)
+		hidden, cell_state = self.GRU(embedded, (last_hidden, cell_input))
+
+		attention_weights = F.softmax(self.atten(hidden, encoder_outputs))
 		context = attention_weights.bmm(encoder_outputs.transpose(0, 1))
 
 		rnn_output = hidden
-		# print(context.shape)
 		context = context.squeeze(1)
-		# print(rnn_output.shape)
-		# print(context.shape)
 
 		concat_input = torch.cat((rnn_output, context), 1)
 
 		concat_output = torch.tanh(self.concat(concat_input))
 
 		output = self.out(concat_output)
-		# print(output.shape)
 
 		return output, hidden, cell_state, attention_weights
 
